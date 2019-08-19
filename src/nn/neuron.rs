@@ -1,12 +1,12 @@
 use super::math;
 
-struct Neuron<'a> {
-    weights: &'a [f64],
-    bias: f64,
+pub struct Neuron<'a> {
+    pub weights: &'a [f64],
+    pub bias: f64,
 }
 
 impl<'a> Neuron<'a> {
-    fn feed_forward(&self, inputs: &[f64]) -> f64 {
+    pub fn feed_forward(&self, inputs: &[f64]) -> f64 {
         let dot_product: f64 = inputs
             .into_iter()
             .zip(self.weights.into_iter())
