@@ -1,5 +1,6 @@
 use super::math;
 
+#[derive(Debug, PartialEq)]
 pub struct Neuron {
     pub weights: Vec<f64>,
     pub bias: f64,
@@ -7,12 +8,17 @@ pub struct Neuron {
 
 impl Neuron {
     pub fn feed_forward(&self, inputs: &[f64]) -> f64 {
-        let dot_product: f64 = inputs
-            .into_iter()
-            .zip(self.weights.as_slice().into_iter())
-            .map(|(x, y)| x * y)
-            .sum();
+        let dot_product = math::dot_product(inputs, self.weights.as_slice());
         return math::sigmoid(dot_product + self.bias);
+    }
+
+    pub fn back_propogate(&self, preds: &[f64]) -> Neuron {
+        let sum = math::dot_product(preds, self.weights.as_slice());
+        let dsum = math::deriv_sigmoid(sum);
+        let weights: Vec<_> = preds.iter().map(|w| w * dsum).collect();
+        let neuron = Neuron { weights, bias: dsum };
+        println!("sum: {}, inputs: {:?}, neuron: {:?}", sum, preds, neuron);
+        return neuron;
     }
 }
 

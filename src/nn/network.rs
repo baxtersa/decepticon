@@ -26,7 +26,7 @@ impl Network {
         let outputs: Vec<_> = iter::repeat_with(move || {
             let weights = vec![0.0; num_hidden_layers];
             return neuron::Neuron {
-                weights: weights,
+                weights,
                 bias,
             };
         })
@@ -54,14 +54,53 @@ impl Network {
             .collect();
     }
 
+    fn back_propogate_output(&self, neuron: &neuron::Neuron, preds: &[f64]) -> neuron::Neuron {
+        let sum = math::dot_product(preds, neuron.weights.as_slice());
+        let dsum = math::deriv_sigmoid(sum);
+        let weights: Vec<_> = neuron.weights.iter().map(|w| w * dsum).collect();
+        return neuron::Neuron { weights, bias: dsum };
+    }
+
+    fn back_propogate_hidden(&self, neuron: &neuron::Neuron, preds: &[f64]) -> neuron::Neuron {
+        let sum = math::dot_product(preds, neuron.weights.as_slice());
+        let dsum = math::deriv_sigmoid(sum);
+        let weights: Vec<_> = preds.iter().map(|w| w * dsum).collect();
+        return neuron::Neuron { weights, bias: dsum };
+    }
+
+    fn back_propogate(&self, inputs: &[f64], expecteds: &[f64], pred_outputs: &[f64]) -> Vec<neuron::Neuron> {
+        let dlosses: Vec<_> = pred_outputs.iter().zip(expecteds.iter())
+            .map(|(pred, expected)| -2.0 * (expected - pred))
+            .collect();
+        let doutputs: Vec<_> = self.outputs.iter()
+            .map(|output| {
+                let preds: Vec<_> = self.hidden_layer.iter().map(|hidden| hidden.feed_forward(inputs)).collect();
+                return self.back_propogate_output(output, preds.as_slice());
+            })
+            .collect();
+        let dhiddens: Vec<_> = self.hidden_layer.iter()
+            .map(|hidden| self.back_propogate_hidden(hidden, inputs))
+            .collect();
+
+        let deltas: Vec<_> = dlosses.iter()
+            .map(|loss| {
+                let weights: Vec<_> = doutputs.iter().zip(dhiddens.iter())
+                    .flat_map(|(output, hidden)| output.weights.iter().zip(hidden.weights.iter())
+                        .map(|(wo, wh)| wo * wh * loss))
+                    .collect();
+                let bias = 0.0 * loss;
+                return neuron::Neuron { weights, bias };
+            })
+            .collect();
+        return deltas;
+    }
+
     fn train(&self, data: &[Vec<f64>], actuals: &[Vec<f64>]) {
         for epoch in 0..self.epochs {
-            let mut sum_error = 0.0;
             for (entity, actual) in data.iter().zip(actuals.iter()) {
-                let outputs: Vec<_> = self.feed_forward(entity.as_slice());
-                sum_error += math::mse(&outputs, actual.as_slice());
+                let new_outputs = self.feed_forward(entity.as_slice());
+                let deltas = self.back_propogate(entity.as_slice(), actual.as_slice(), new_outputs.as_slice());
             }
-            println!(">epoch={}, error={}", epoch, sum_error);
         }
     }
 }
@@ -122,49 +161,97 @@ fn feed_forward_two_outputs() {
 }
 
 #[test]
-fn train() {
+fn feed_forward_fixed_weights() {
+    let inputs = [-2.0, -1.0];
+
     let network = Network {
-        hidden_layer: vec![neuron::Neuron {
-            weights: vec![0.13436424411240122, 0.8474337369372327],
-            bias: 0.763774618976614,
-        }],
+        hidden_layer: vec![
+            neuron::Neuron {
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
+            },
+            neuron::Neuron {
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
+            },
+        ],
         outputs: vec![
             neuron::Neuron {
-                weights: vec![0.2550690257394217],
-                bias: 0.49543508709194095,
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
+            },
+        ],
+        epochs: 1000,
+    };
+
+    assert_eq!(vec![0.5236951740839997], network.feed_forward(&inputs));
+}
+
+#[test]
+fn back_propogate() {
+    let inputs = [-2.0, -1.0];
+    let actuals = [1.0];
+
+    let network = Network {
+        hidden_layer: vec![
+            neuron::Neuron {
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
             },
             neuron::Neuron {
-                weights: vec![0.4494910647887381],
-                bias: 0.651592972722763,
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
             },
+        ],
+        outputs: vec![
+            neuron::Neuron {
+                weights: vec![1.0, 1.0],
+                bias: 0.0,
+            },
+        ],
+        epochs: 1000,
+    };
+
+    assert_eq!(
+        vec![neuron::Neuron { weights: vec![0.021469535265811107, 0.010734767632905554], bias: -0.0 }],
+        network.back_propogate(&inputs, &actuals, network.feed_forward(&inputs).as_slice())
+    );
+}
+
+#[test]
+fn train() {
+    let network = Network {
+        hidden_layer: vec![
+            neuron::Neuron {
+                weights: vec![1.0, 0.0],
+                bias: 0.0,
+            },
+            neuron::Neuron {
+                weights: vec![1.0, 0.0],
+                bias: 0.0,
+            }
+        ],
+        outputs: vec![
+            neuron::Neuron {
+                weights: vec![1.0, 0.0],
+                bias: 0.0,
+            }
         ],
         epochs: 20,
     };
 
-    let dataset = vec![
-        vec![2.7810836, 2.550537003],
-        vec![1.465489372, 2.362125076],
-        vec![3.396561688, 4.400293529],
-        vec![1.38807019, 1.850220317],
-        vec![3.06407232, 3.005305973],
-        vec![7.627531214, 2.759262235],
-        vec![5.332441248, 2.088626775],
-        vec![6.922596716, 1.77106367],
-        vec![8.675418651, -0.242068655],
-        vec![7.673756466, 3.508563011],
+    let dataset = [
+        vec![-2.0, -1.0],
+        vec![25.0, 6.0],
+        vec![17.0, 4.0],
+        vec![-15.0, -6.0]
     ];
     let actuals = [
-        vec![0.0],
-        vec![0.0],
-        vec![0.0],
-        vec![0.0],
-        vec![0.0],
         vec![1.0],
-        vec![1.0],
-        vec![1.0],
-        vec![1.0],
+        vec![0.0],
+        vec![0.0],
         vec![1.0],
     ];
 
-    network.train(dataset.as_slice(), &actuals);
+    network.train(&dataset, &actuals);
 }
