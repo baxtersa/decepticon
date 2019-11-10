@@ -16,7 +16,7 @@ impl Network {
         let hidden_layer: Vec<_> = iter::repeat_with(move || {
             let weights = vec![0.0; num_inputs];
             return neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: weights,
+                weights,
                 bias,
             });
         })
@@ -26,7 +26,7 @@ impl Network {
         let outputs: Vec<_> = iter::repeat_with(move || {
             let weights = vec![0.0; num_hidden_layers];
             return neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: weights,
+                weights,
                 bias,
             });
         })
@@ -121,11 +121,11 @@ fn feed_forward() {
     let network = Network {
         hidden_layer: vec![
             neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![0.0, 1.0],
+                weights: weights.clone(),
                 bias,
             }),
             neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![0.0, 1.0],
+                weights: weights.clone(),
                 bias,
             }),
         ],
