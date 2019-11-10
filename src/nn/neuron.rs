@@ -58,3 +58,24 @@ fn feed_forward() {
 
     assert_eq!(0.9990889488055994, neuron.feed_forward(&inputs))
 }
+
+#[test]
+fn feed_forward_hidden() {
+    let weights = vec![0.0, 1.0];
+    let bias = 0.0;
+    let inputs = [2.0, 3.0];
+
+    let h1 = Neuron::Hidden(NeuronProperties {
+        weights: weights.clone(),
+        bias,
+    });
+
+    let h1_out = h1.feed_forward(&inputs);
+    assert_eq!(0.9525741268224334, h1_out);
+
+    let output = Neuron::Output(NeuronProperties {
+        weights,
+        bias,
+    });
+    assert_eq!(0.7216325609518421, output.feed_forward(&[h1_out, h1_out]));
+}
