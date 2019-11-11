@@ -3,7 +3,7 @@ use super::neuron::{Neuron, NeuronBase};
 use std::iter;
 
 #[derive(Debug, PartialEq)]
-struct Network {
+pub struct Network {
     hidden_layer: Vec<neuron::HiddenNeuron>,
     outputs: Vec<neuron::OutputNeuron>,
 }
@@ -13,19 +13,17 @@ impl Network {
 
     pub fn new(num_inputs: usize, num_hidden_layers: usize, num_outputs: usize) -> Network {
         let bias = 0 as f64;
-        let hidden_layer: Vec<_> = iter::repeat_with(move || {
-            let weights = vec![1.0; num_inputs];
-            return neuron::HiddenNeuron::new(weights, bias);
-        })
-        .take(num_hidden_layers)
-        .collect();
+        let weights = vec![1.0; num_inputs];
 
-        let outputs: Vec<_> = iter::repeat_with(move || {
-            let weights = vec![1.0; num_hidden_layers];
-            return neuron::OutputNeuron::new(weights, bias);
-        })
-        .take(num_outputs)
-        .collect();
+        let hidden_layer: Vec<_> =
+            iter::repeat_with(|| neuron::HiddenNeuron::new(weights.clone(), bias))
+                .take(num_hidden_layers)
+                .collect();
+
+        let outputs: Vec<_> =
+            iter::repeat_with(|| neuron::OutputNeuron::new(weights.clone(), bias))
+                .take(num_outputs)
+                .collect();
 
         return Network {
             hidden_layer,
@@ -33,15 +31,18 @@ impl Network {
         };
     }
 
-    pub fn feed_forward(&self, inputs: &[f64]) -> Vec<f64> {
+    fn feed_forward(&self, inputs: &[f64]) -> Vec<f64> {
         let hidden_outs = self.feed_forward_neurons(&self.hidden_layer, inputs);
         return self.feed_forward_neurons(&self.outputs, &hidden_outs);
     }
 
-    pub fn back_propogate(&self, inputs: &[f64], actuals: &[f64]) -> Self {
+    fn back_propogate(&self, inputs: &[f64], actuals: &[f64]) -> Self {
         let ypred = self.feed_forward(inputs);
-        let dLs: Vec<_> = ypred.iter().zip(actuals.iter()).map(|(input, actual)| -2.0 * (actual - input)).collect();
-        println!("{:?}", dLs);
+        let dLs: Vec<_> = ypred
+            .iter()
+            .zip(actuals.iter())
+            .map(|(input, actual)| -2.0 * (actual - input))
+            .collect();
         let hiddens: Vec<_> = self
             .hidden_layer
             .iter()
@@ -110,9 +111,12 @@ impl Network {
                 let network = self.back_propogate(entity.as_slice(), actual);
                 self.hidden_layer = network.hidden_layer;
                 self.outputs = network.outputs;
-                println!("{} h1 {:?}", epoch, self.hidden_layer.first().unwrap());
             }
         }
+    }
+
+    pub fn predict(&self, inputs: &[f64]) -> Vec<f64> {
+        return self.feed_forward(inputs);
     }
 
     fn feed_forward_neurons<T>(&self, neurons: &Vec<T>, inputs: &[f64]) -> Vec<f64>
@@ -215,23 +219,41 @@ fn back_propogate() {
 }
 
 #[test]
-fn train() {
+fn train_first_iter() {
     let mut network = Network::new(2, 2, 1);
 
     let dataset = [
         vec![-2.0, -1.0],
         vec![25.0, 6.0],
         vec![17.0, 4.0],
-        vec![-15.0, -6.0]
+        vec![-15.0, -6.0],
     ];
-    let actuals = [
-        vec![1.0],
-        vec![0.0],
-        vec![0.0],
-        vec![1.0],
+    let actuals = [vec![1.0], vec![0.0], vec![0.0], vec![1.0]];
+
+    network.train(&dataset, &actuals, 1);
+    assert_eq!(
+        vec![0.5028947910075867],
+        network.feed_forward(&[-7.0, -3.0])
+    );
+    assert_eq!(vec![0.8742266927103481], network.feed_forward(&[20.0, 2.0]));
+}
+
+#[test]
+fn train_two_iters() {
+    let mut network = Network::new(2, 2, 1);
+
+    let dataset = [
+        vec![-2.0, -1.0],
+        vec![25.0, 6.0],
+        vec![17.0, 4.0],
+        vec![-15.0, -6.0],
     ];
+    let actuals = [vec![1.0], vec![0.0], vec![0.0], vec![1.0]];
 
     network.train(&dataset, &actuals, 2);
-    assert_eq!(vec![0.5028947910075867], network.feed_forward(&[-7.0, -3.0]));
-    assert_eq!(vec![0.8742266927103481], network.feed_forward(&[20.0, 2.0]));
+    assert_eq!(
+        vec![0.5055464076006879],
+        network.feed_forward(&[-7.0, -3.0])
+    );
+    assert_eq!(vec![0.8671054100164907], network.feed_forward(&[20.0, 2.0]));
 }

@@ -19,7 +19,7 @@ impl<T: NeuronBase + std::fmt::Debug> Neuron for T {
 
     fn back_propogate(&self, preds: &[f64]) -> Self {
         let sum = math::dot_product(preds, self.get_weights().as_slice());
-        let dsum = math::deriv_sigmoid(sum);
+        let dsum = math::deriv_sigmoid(sum + self.get_bias());
         let weights: Vec<_> = preds.iter().map(|w| w * dsum).collect();
         let new_neuron = Self::new(weights, dsum);
         return new_neuron;
