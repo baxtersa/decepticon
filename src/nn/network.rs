@@ -1,34 +1,28 @@
-use super::math;
 use super::neuron;
+use super::neuron::{Neuron, NeuronBase};
 use std::iter;
 
+#[derive(Debug, PartialEq)]
 struct Network {
-    hidden_layer: Vec<neuron::Neuron>,
-    outputs: Vec<neuron::Neuron>,
-    epochs: usize,
+    hidden_layer: Vec<neuron::HiddenNeuron>,
+    outputs: Vec<neuron::OutputNeuron>,
 }
 
 impl Network {
-    const LEARN_RATE: f64 = 0.5;
+    const LEARN_RATE: f64 = 0.1;
 
-    fn new(num_inputs: usize, num_hidden_layers: usize, num_outputs: usize) -> Network {
+    pub fn new(num_inputs: usize, num_hidden_layers: usize, num_outputs: usize) -> Network {
         let bias = 0 as f64;
         let hidden_layer: Vec<_> = iter::repeat_with(move || {
-            let weights = vec![0.0; num_inputs];
-            return neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights,
-                bias,
-            });
+            let weights = vec![1.0; num_inputs];
+            return neuron::HiddenNeuron::new(weights, bias);
         })
         .take(num_hidden_layers)
         .collect();
 
         let outputs: Vec<_> = iter::repeat_with(move || {
-            let weights = vec![0.0; num_hidden_layers];
-            return neuron::Neuron::Output(neuron::NeuronProperties {
-                weights,
-                bias,
-            });
+            let weights = vec![1.0; num_hidden_layers];
+            return neuron::OutputNeuron::new(weights, bias);
         })
         .take(num_outputs)
         .collect();
@@ -36,79 +30,100 @@ impl Network {
         return Network {
             hidden_layer,
             outputs,
-            epochs: 1000,
         };
     }
 
-    fn feed_forward_(&self, inputs: &[f64], layer: &[neuron::Neuron]) -> Vec<f64> {
-        return layer.iter()
-            .map(|neuron| neuron.feed_forward(inputs))
-            .collect();
+    pub fn feed_forward(&self, inputs: &[f64]) -> Vec<f64> {
+        let hidden_outs = self.feed_forward_neurons(&self.hidden_layer, inputs);
+        return self.feed_forward_neurons(&self.outputs, &hidden_outs);
     }
 
-    fn feed_forward(&self, inputs: &[f64]) -> Vec<f64> {
-        let hidden_outs: Vec<_> = self
+    pub fn back_propogate(&self, inputs: &[f64], actuals: &[f64]) -> Self {
+        let ypred = self.feed_forward(inputs);
+        let dLs: Vec<_> = ypred.iter().zip(actuals.iter()).map(|(input, actual)| -2.0 * (actual - input)).collect();
+        println!("{:?}", dLs);
+        let hiddens: Vec<_> = self
             .hidden_layer
             .iter()
-            .map(|neuron| neuron.feed_forward(inputs))
+            .map(|hidden| hidden.feed_forward(inputs))
             .collect();
-        return self
+        let doutputs: Vec<_> = self
             .outputs
-            .as_slice()
             .iter()
-            .map(|output| output.feed_forward(&hidden_outs))
+            .map(|output| output.back_propogate(hiddens.as_slice()))
             .collect();
+        let dhidden: Vec<_> = self
+            .hidden_layer
+            .iter()
+            .map(|hidden| hidden.back_propogate(inputs))
+            .collect();
+
+        let dinfluence: Vec<_> = self
+            .outputs
+            .iter()
+            .flat_map(|output| output.influence(hiddens.as_slice()))
+            .collect();
+
+        let new_outputs: Vec<_> = dLs
+            .iter()
+            .zip(doutputs.iter())
+            .zip(self.outputs.iter())
+            .map(|((dL, doutput), output)| {
+                neuron::OutputNeuron::new(
+                    doutput
+                        .get_weights()
+                        .iter()
+                        .zip(output.get_weights().iter())
+                        .map(|(dweight, weight)| weight - 0.1 * dL * dweight)
+                        .collect(),
+                    output.get_bias() - doutput.get_bias() * dL * 0.1,
+                )
+            })
+            .collect();
+        let new_hidden_layer: Vec<_> = dinfluence
+            .iter()
+            .zip(dhidden.iter())
+            .zip(self.hidden_layer.iter())
+            .map(|((influence, dhidden), hidden)| {
+                neuron::HiddenNeuron::new(
+                    hidden
+                        .get_weights()
+                        .iter()
+                        .zip(dhidden.get_weights().iter())
+                        .map(|(weight, dweight)| {
+                            weight - 0.1 * dLs.first().unwrap() * dweight * influence
+                        })
+                        .collect(),
+                    hidden.get_bias() - 0.1 * dLs.first().unwrap() * dhidden.get_bias() * influence,
+                )
+            })
+            .collect();
+        return Network {
+            hidden_layer: new_hidden_layer,
+            outputs: new_outputs,
+        };
     }
 
-    // fn back_propogate_output(&self, neuron: &neuron::Neuron, preds: &[f64]) -> neuron::Neuron {
-    //     let sum = math::dot_product(preds, neuron.weights.as_slice());
-    //     let dsum = math::deriv_sigmoid(sum);
-    //     let weights: Vec<_> = neuron.weights.iter().map(|w| w * dsum).collect();
-    //     return neuron::Neuron { weights, bias: dsum };
-    // }
-
-    // fn back_propogate_hidden(&self, neuron: &neuron::Neuron, preds: &[f64]) -> neuron::Neuron {
-    //     let sum = math::dot_product(preds, neuron.weights.as_slice());
-    //     let dsum = math::deriv_sigmoid(sum);
-    //     let weights: Vec<_> = preds.iter().map(|w| w * dsum).collect();
-    //     return neuron::Neuron { weights, bias: dsum };
-    // }
-
-    fn back_propogate(&self, inputs: &[f64], expecteds: &[f64], pred_outputs: &[f64]) -> Vec<neuron::Neuron> {
-        // let dlosses: Vec<_> = pred_outputs.iter().zip(expecteds.iter())
-        //     .map(|(pred, expected)| -2.0 * (expected - pred))
-        //     .collect();
-        // let doutputs: Vec<_> = self.outputs.iter()
-        //     .map(|output| {
-        //         let preds: Vec<_> = self.hidden_layer.iter().map(|hidden| hidden.feed_forward(inputs)).collect();
-        //         return self.back_propogate_output(output, preds.as_slice());
-        //     })
-        //     .collect();
-        // let dhiddens: Vec<_> = self.hidden_layer.iter()
-        //     .map(|hidden| self.back_propogate_hidden(hidden, inputs))
-        //     .collect();
-
-        // let deltas: Vec<_> = dlosses.iter()
-        //     .map(|loss| {
-        //         let weights: Vec<_> = doutputs.iter().zip(dhiddens.iter())
-        //             .flat_map(|(output, hidden)| output.weights.iter().zip(hidden.weights.iter())
-        //                 .map(|(wo, wh)| wo * wh * loss))
-        //             .collect();
-        //         let bias = 0.0 * loss;
-        //         return neuron::Neuron { weights, bias };
-        //     })
-        //     .collect();
-        // return deltas;
-        return vec![];
-    }
-
-    fn train(&self, data: &[Vec<f64>], actuals: &[Vec<f64>]) {
-        for epoch in 0..self.epochs {
+    pub fn train(&mut self, data: &[Vec<f64>], actuals: &[Vec<f64>], epochs: usize) {
+        for epoch in 0..epochs {
             for (entity, actual) in data.iter().zip(actuals.iter()) {
-                let new_outputs = self.feed_forward(entity.as_slice());
-                let deltas = self.back_propogate(entity.as_slice(), actual.as_slice(), new_outputs.as_slice());
+                let network = self.back_propogate(entity.as_slice(), actual);
+                self.hidden_layer = network.hidden_layer;
+                self.outputs = network.outputs;
+                println!("{} h1 {:?}", epoch, self.hidden_layer.first().unwrap());
             }
         }
+    }
+
+    fn feed_forward_neurons<T>(&self, neurons: &Vec<T>, inputs: &[f64]) -> Vec<f64>
+    where
+        T: neuron::Neuron,
+    {
+        return neurons
+            .as_slice()
+            .iter()
+            .map(|neuron| neuron.feed_forward(inputs))
+            .collect();
     }
 }
 
@@ -120,20 +135,10 @@ fn feed_forward() {
 
     let network = Network {
         hidden_layer: vec![
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: weights.clone(),
-                bias,
-            }),
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: weights.clone(),
-                bias,
-            }),
+            neuron::HiddenNeuron::new(weights.clone(), bias),
+            neuron::HiddenNeuron::new(weights.clone(), bias),
         ],
-        outputs: vec![neuron::Neuron::Output(neuron::NeuronProperties {
-            weights: weights,
-            bias,
-        })],
-        epochs: 1000,
+        outputs: vec![neuron::OutputNeuron::new(weights, bias)],
     };
 
     assert_eq!(vec![0.7216325609518421], network.feed_forward(&inputs))
@@ -144,23 +149,14 @@ fn feed_forward_two_outputs() {
     let inputs = [1.0, 0.0];
 
     let network = Network {
-        hidden_layer: vec![
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![0.13436424411240122, 0.8474337369372327],
-                bias: 0.763774618976614,
-            })
-        ],
+        hidden_layer: vec![neuron::HiddenNeuron::new(
+            vec![0.13436424411240122, 0.8474337369372327],
+            0.763774618976614,
+        )],
         outputs: vec![
-            neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: vec![0.2550690257394217],
-                bias: 0.49543508709194095,
-            }),
-            neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: vec![0.4494910647887381],
-                bias: 0.651592972722763,
-            }),
+            neuron::OutputNeuron::new(vec![0.2550690257394217], 0.49543508709194095),
+            neuron::OutputNeuron::new(vec![0.4494910647887381], 0.651592972722763),
         ],
-        epochs: 1000,
     };
 
     assert_eq!(
@@ -175,22 +171,10 @@ fn feed_forward_fixed_weights() {
 
     let network = Network {
         hidden_layer: vec![
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
+            neuron::HiddenNeuron::new(vec![1.0, 1.0], 0.0),
+            neuron::HiddenNeuron::new(vec![1.0, 1.0], 0.0),
         ],
-        outputs: vec![
-            neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-        ],
-        epochs: 1000,
+        outputs: vec![neuron::OutputNeuron::new(vec![1.0, 1.0], 0.0)],
     };
 
     assert_eq!(vec![0.5236951740839997], network.feed_forward(&inputs));
@@ -203,51 +187,36 @@ fn back_propogate() {
 
     let network = Network {
         hidden_layer: vec![
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
+            neuron::HiddenNeuron::new(vec![1.0, 1.0], 0.0),
+            neuron::HiddenNeuron::new(vec![1.0, 1.0], 0.0),
         ],
-        outputs: vec![
-            neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-        ],
-        epochs: 1000,
+        outputs: vec![neuron::OutputNeuron::new(vec![1.0, 1.0], 0.0)],
     };
 
-    // assert_eq!(
-    //     vec![neuron::Neuron { weights: vec![0.021469535265811107, 0.010734767632905554], bias: -0.0 }],
-    //     network.back_propogate(&inputs, &actuals, network.feed_forward(&inputs).as_slice())
-    // );
+    assert_eq!(
+        Network {
+            hidden_layer: vec![
+                neuron::HiddenNeuron::new(
+                    vec![0.9978530464734189, 0.9989265232367095],
+                    0.0010734767632905556
+                ),
+                neuron::HiddenNeuron::new(
+                    vec![0.9978530464734189, 0.9989265232367095],
+                    0.0010734767632905556
+                ),
+            ],
+            outputs: vec![neuron::OutputNeuron::new(
+                vec![1.0011269220242958, 1.0011269220242958],
+                0.02376175595284281
+            )],
+        },
+        network.back_propogate(&inputs, &actuals)
+    );
 }
 
 #[test]
 fn train() {
-    let network = Network {
-        hidden_layer: vec![
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-            neuron::Neuron::Hidden(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-        ],
-        outputs: vec![
-            neuron::Neuron::Output(neuron::NeuronProperties {
-                weights: vec![1.0, 1.0],
-                bias: 0.0,
-            }),
-        ],
-        epochs: 20,
-    };
+    let mut network = Network::new(2, 2, 1);
 
     let dataset = [
         vec![-2.0, -1.0],
@@ -262,5 +231,7 @@ fn train() {
         vec![1.0],
     ];
 
-    network.train(&dataset, &actuals);
+    network.train(&dataset, &actuals, 2);
+    assert_eq!(vec![0.5028947910075867], network.feed_forward(&[-7.0, -3.0]));
+    assert_eq!(vec![0.8742266927103481], network.feed_forward(&[20.0, 2.0]));
 }
